@@ -111,15 +111,17 @@ function calculateBalances() {
   fs.writeFileSync(balancesEvolutionsFile, JSON.stringify(balancesEvolutions));
 }
 
-function calculateDistribution() {
-  const staking = new Staking("USDC");
-  staking.notifyRewardAmount(1500000000, 1445703);
+const blacklistedAddresses = ["KT1FG63hhFtMEEEtmBSX2vuFmP87t9E7Ab4t", "KT1SN87btphRCwGXFTbzndMVQzrpZ165XutV", "tz1QGZU9mpkSYkMVkoi2J22RtoqMY7RRzjjn"]
+
+
+function calculateDistribution(reward: number, startLevel: number, duration: number) {
+  const staking = new Staking(duration, "USDC");
+  staking.notifyRewardAmount(reward, startLevel);
   const diffs = JSON.parse(fs.readFileSync(diffsFile).toString()) as Array<BigMapDiff>;
   const balances: Map<string, string> = new Map<string, string>();
-  diffs.forEach(d => {
-    if (d.operation.level < 1445703 || d.operation.level > 1445703 + 10080) {
-      return;
-    }
+  diffs
+    .filter(d => !(d.operation.level < startLevel || d.operation.level > startLevel + duration) && blacklistedAddresses.indexOf(d.content.key) === -1)
+    .forEach(d => {
     switch (d.action) {
       case 'add_key': {
         balances.set(d.content.key, d.content.value);
@@ -138,7 +140,7 @@ function calculateDistribution() {
         const difference = new BigNumber(newBalance, 10).minus(new BigNumber(existingBalance, 10));
         if (difference.isGreaterThan(0)) {
           staking.stake(d.content.key, difference.toNumber(), d.operation.level);
-        } else {
+        } else if (difference.isLessThan(0)){
           staking.withdraw(d.content.key, difference.abs().toNumber(), d.operation.level);
         }
         balances.set(d.content.key, d.content.value);
@@ -148,7 +150,25 @@ function calculateDistribution() {
         break;
     }
   });
-  return staking.allRewards(1445703 + 10080);
+  return staking;
+}
+
+function showDistribution() {
+  const startLevel = 1445703;
+  const reward = 2000000000;
+  const duration = 10080;
+  const staking = calculateDistribution(reward, startLevel, duration);
+  const allRewards = staking.allRewards(startLevel + duration);
+  /*for (const entry of allRewards.entries()) {
+    console.log(entry[0], entry[1].toString(10));
+  }*/
+  let total = new BigNumber("0");
+  for(const value of allRewards.values()) {
+    total = total.plus(value);
+  }
+  console.log(reward,
+    total.toString(10),
+    new BigNumber(reward, 10).minus(total, 10).toString(10));
 }
 
 (async () => {
@@ -156,17 +176,7 @@ function calculateDistribution() {
   //await indexDiffs();
   //calculateBalances();
 
-  const allRewards = calculateDistribution();
-  for (const entry of allRewards.entries()) {
-    console.log(entry[0], entry[1].toString(10));
-  }
-  let total = new BigNumber("0");
-  for(const value of allRewards.values()) {
-    total = total.plus(value);
-  }
-  console.log(1500000000,
-    total.toString(10),
-    new BigNumber(1500000000, 10).minus(total).toString(10));
+  showDistribution();
 })().catch(e => {
   console.error(e);
 });

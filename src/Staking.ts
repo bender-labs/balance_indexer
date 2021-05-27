@@ -1,18 +1,17 @@
 import BigNumber from 'bignumber.js';
 
-const programDuration = 10080;
-
 export default class Staking {
 
-  constructor(currency: string) {
+  constructor(programDuration: number, currency: string) {
     this.currency = currency;
+    this.DURATION = programDuration;
   }
 
-  private DURATION = programDuration;
+  private DURATION: number;
   private currency: string;
   private periodFinish = 0;
   private rewardRate = new BigNumber("0");
-  private lastUpdateTime: number;
+  private lastUpdateTime = 0;
   private rewardPerTokenStored = new BigNumber("0");
   private userRewardPerTokenPaid = new Map<string, BigNumber>();
   private rewards = new Map<string, BigNumber>();
@@ -21,6 +20,10 @@ export default class Staking {
 
   totalSupply(): BigNumber {
     return this._totalSupply;
+  }
+
+  balances(): Map<string, BigNumber> {
+    return this._balances;
   }
 
   balanceOf(account: string): BigNumber {
@@ -47,7 +50,7 @@ export default class Staking {
     return this.rewardPerTokenStored.plus(
       new BigNumber(
         this.lastTimeRewardApplicable(blockLevel) - this.lastUpdateTime, 10)
-        .multipliedBy(this.rewardRate).dividedBy(this.totalSupply()));
+        .multipliedBy(this.rewardRate).dividedBy(this.totalSupply(), 10), 10);
     /*return
     rewardPerTokenStored.add(
       lastTimeRewardApplicable()
@@ -61,8 +64,8 @@ export default class Staking {
   earned(account: string, blockLevel: number): BigNumber {
     return this.balanceOf(account)
       .multipliedBy(
-        this.rewardPerToken(blockLevel).minus(this.userRewardPerTokenPaid.get(account) || new BigNumber("0")))
-      .plus(this.rewards.get(account) || new BigNumber("0"));
+        this.rewardPerToken(blockLevel).minus(this.userRewardPerTokenPaid.get(account) || new BigNumber("0", 10), 10), 10)
+      .plus(this.rewards.get(account) || new BigNumber("0", 10), 10);
     /*return
     balanceOf(account)
       .mul(rewardPerToken().sub(userRewardPerTokenPaid[account]))
@@ -72,24 +75,25 @@ export default class Staking {
 
   stake(account: string, amount: number, currentLevel: number): void {
     this.updateReward(account, currentLevel);
-    this._totalSupply = this._totalSupply.plus(amount);
+    this._totalSupply = this._totalSupply.plus(amount, 10);
     this._balances.set(account, this.balanceOf(account).plus(amount, 10));
   }
 
   withdraw(account: string, amount: number, currentLevel: number): void {
     this.updateReward(account, currentLevel);
-    this._totalSupply = this._totalSupply.minus(amount);
-    this._balances.set(account, this.balanceOf(account).plus(amount, 10));
+    this._totalSupply = this._totalSupply.minus(amount, 10);
+    this._balances.set(account, this.balanceOf(account).minus(amount, 10));
   }
 
   notifyRewardAmount(reward: number, currentLevel: number): void {
     this.updateReward("0x0000", currentLevel);
     if (currentLevel >= this.periodFinish) {
-      this.rewardRate = new BigNumber(reward, 10).dividedBy(this.DURATION);
+      this.rewardRate = new BigNumber(reward, 10).dividedBy(this.DURATION, 10);
+      console.log(this.rewardRate.toString(10));
     } else {
       const remaining = this.periodFinish - currentLevel;
-      const leftover = new BigNumber(remaining, 10).multipliedBy(this.rewardRate);
-      this.rewardRate = (new BigNumber(reward, 10).plus(leftover)).dividedBy(this.DURATION);
+      const leftover = new BigNumber(remaining, 10).multipliedBy(this.rewardRate, 10);
+      this.rewardRate = (new BigNumber(reward, 10).plus(leftover)).dividedBy(this.DURATION, 10);
     }
     this.lastUpdateTime = currentLevel;
     this.periodFinish = currentLevel + this.DURATION;
