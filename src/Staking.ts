@@ -50,7 +50,9 @@ export default class Staking {
     return this.rewardPerTokenStored.plus(
       new BigNumber(
         this.lastTimeRewardApplicable(blockLevel) - this.lastUpdateTime, 10)
-        .multipliedBy(this.rewardRate).dividedBy(this.totalSupply(), 10), 10);
+        .multipliedBy(this.rewardRate)
+        .multipliedBy(1e8)
+        .dividedBy(this.totalSupply(), 10), 10);
     /*return
     rewardPerTokenStored.add(
       lastTimeRewardApplicable()
@@ -65,6 +67,7 @@ export default class Staking {
     return this.balanceOf(account)
       .multipliedBy(
         this.rewardPerToken(blockLevel).minus(this.userRewardPerTokenPaid.get(account) || new BigNumber("0", 10), 10), 10)
+      .dividedBy(1e8)
       .plus(this.rewards.get(account) || new BigNumber("0", 10), 10);
     /*return
     balanceOf(account)
@@ -88,7 +91,7 @@ export default class Staking {
   notifyRewardAmount(reward: number, currentLevel: number): void {
     this.updateReward("0x0000", currentLevel);
     if (currentLevel >= this.periodFinish) {
-      this.rewardRate = new BigNumber(reward, 10).dividedBy(this.DURATION, 10);
+      this.rewardRate = new BigNumber(reward, 10).dividedBy(this.DURATION, 10).integerValue(BigNumber.ROUND_DOWN);
       console.log(this.rewardRate.toString(10));
     } else {
       const remaining = this.periodFinish - currentLevel;
