@@ -125,12 +125,12 @@ function calculateDistribution(reward: number, startLevel: number, duration: num
     switch (d.action) {
       case 'add_key': {
         balances.set(d.content.key, d.content.value);
-        staking.stake(d.content.key, +d.content.value, d.operation.level);
+        staking.stake(d.content.key, new BigNumber(d.content.value), d.operation.level);
         break;
       }
       case 'remove_key': {
         const existingBalance = balances.get(d.content.key);
-        staking.withdraw(d.content.key, +existingBalance, d.operation.level);
+        staking.withdraw(d.content.key, new BigNumber(existingBalance), d.operation.level);
         balances.delete(d.content.key);
         break;
       }
@@ -139,9 +139,9 @@ function calculateDistribution(reward: number, startLevel: number, duration: num
         const newBalance = d.content.value;
         const difference = new BigNumber(newBalance, 10).minus(new BigNumber(existingBalance, 10));
         if (difference.isGreaterThan(0)) {
-          staking.stake(d.content.key, difference.toNumber(), d.operation.level);
+          staking.stake(d.content.key, difference, d.operation.level);
         } else if (difference.isLessThan(0)){
-          staking.withdraw(d.content.key, difference.abs().toNumber(), d.operation.level);
+          staking.withdraw(d.content.key, difference.abs(), d.operation.level);
         }
         balances.set(d.content.key, d.content.value);
         break;
@@ -155,8 +155,8 @@ function calculateDistribution(reward: number, startLevel: number, duration: num
 
 function showDistribution() {
   const startLevel = 1445703;
-  const reward = 2000000000;
   const duration = 10080;
+  const reward = 3570000000;
   const staking = calculateDistribution(reward, startLevel, duration);
   const allRewards = staking.allRewards(startLevel + duration);
   /*for (const entry of allRewards.entries()) {
@@ -169,6 +169,7 @@ function showDistribution() {
   console.log(reward,
     total.toString(10),
     new BigNumber(reward, 10).minus(total, 10).toString(10));
+  console.log(new BigNumber(reward, 10).minus(total, 10).dividedBy(reward).multipliedBy(100).toString(10));
 }
 
 (async () => {
@@ -181,4 +182,10 @@ function showDistribution() {
   console.error(e);
 });
 
+/*
+* week1_DAI.csv
+*
+* address;amount
+*
+* */
 
