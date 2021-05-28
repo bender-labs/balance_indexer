@@ -85,14 +85,14 @@ export default class Staking {
     this._balances.set(account, this.balanceOf(account).minus(amount, 10));
   }
 
-  notifyRewardAmount(reward: number, currentLevel: number): void {
+  notifyRewardAmount(reward: BigNumber, currentLevel: number): void {
     this.updateReward("0x0000", currentLevel);
     if (currentLevel >= this.periodFinish) {
-      this.rewardRate = new BigNumber(reward, 10).dividedBy(this.DURATION, 10);
+      this.rewardRate = reward.dividedBy(this.DURATION, 10);
     } else {
       const remaining = this.periodFinish - currentLevel;
       const leftover = new BigNumber(remaining, 10).multipliedBy(this.rewardRate, 10);
-      this.rewardRate = (new BigNumber(reward, 10).plus(leftover)).dividedBy(this.DURATION, 10);
+      this.rewardRate = (reward.plus(leftover)).dividedBy(this.DURATION, 10);
     }
     this.lastUpdateTime = currentLevel;
     this.periodFinish = currentLevel + this.DURATION;
@@ -100,6 +100,9 @@ export default class Staking {
 
   allRewards(currentLevel: number): Map<string, BigNumber> {
     for(const balance of this._balances.keys()) {
+      if (balance === "tz1ek9wEDD2edxuV1JniLuh2ckh5DeM4FjQo") {
+        console.log(this._balances.get(balance).toString(10));
+      }
       this.updateReward(balance, currentLevel);
     }
     return this.rewards;
