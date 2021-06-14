@@ -332,6 +332,11 @@ function showDistribution() {
 
   const feesToDistribute = calculateAllFees();
 
+  const totalResult: Map<string, Map<string, BigNumber>> = new Map<string, Map<string, BigNumber>>();
+  for (const token of tokens) {
+    totalResult.set(token.symbol, new Map<string, BigNumber>());
+  }
+
   for (const week of weekStarts) {
     for (const totalFee of feesToDistribute.get(week)) {
       const duration = 10080;
@@ -343,15 +348,26 @@ function showDistribution() {
       console.log(startLevel, totalFee.symbol, reward.toString(10));
       const staking = calculateDistribution(reward, startLevel, duration);
       const allRewards = staking.allRewards(startLevel + duration);
-      let fileContent = "Address,Amount\n";
+      const resultForToken = totalResult.get(totalFee.symbol);
       for (const entry of allRewards) {
         const reward = entry[1].integerValue(BigNumber.ROUND_DOWN);
         if (reward.isGreaterThan(0)) {
-          fileContent += `${entry[0]},${reward.toString(10)}\n`;
+          let existingResult = resultForToken.get(entry[0]);
+          if (!existingResult) {
+            existingResult = new BigNumber("0");
+          }
+          resultForToken.set(entry[0], existingResult.plus(reward));
         }
       }
-      fs.writeFileSync(`result/Week${weekStarts.indexOf(week) + 1}_${totalFee.symbol}.csv`, fileContent);
     }
+  }
+  for (const resultToken of totalResult) {
+    let fileContent = "Address,Amount\n";
+    for (const entry of resultToken[1]) {
+      const reward = entry[1];
+      fileContent += `${entry[0]},${reward.toString(10)}\n`;
+    }
+    fs.writeFileSync(`result/All_${resultToken[0]}.csv`, fileContent);
   }
 
   //showDistribution();
