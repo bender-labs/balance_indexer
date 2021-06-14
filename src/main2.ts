@@ -12,36 +12,21 @@ type SimpleOperation = {
   type: 'stake' | 'withdraw';
 }
 
-type BigMapDiff = {
-  operation: SimpleOperation;
-  path: string;
-  action: string;
-  content: {
-    hash: string;
-    key: any;
-    value: string;
-  }
+type ContractConfiguration = {
+  contract: string;
+  duration: number;
+  startLevel: number;
+  rewards: string;
 }
 
-type BalanceEvolution = {
-  operation: SimpleOperation;
-  account: string;
-  value: string;
-}
-
-const operationsFile = 'operations.json';
-const diffsFile = 'diffs.json';
-const balancesEvolutionsFile = 'balancesEvolutions.json';
-const balancesFile = 'balances.json';
-
-async function indexContractOperations(contractAddress: string) {
+async function indexContractOperations(configuration: ContractConfiguration) {
   let lastId: number | undefined;
   const operations: Array<SimpleOperation> = [];
   do {
-    const result = await axios.get(`https://api.better-call.dev/v1/contract/mainnet/${contractAddress}/operations?entrypoints=stake,withdraw&with_storage_diff=true${lastId ? '&last_id=' + lastId : ''}`);
+    const result = await axios.get(`https://api.better-call.dev/v1/contract/mainnet/${configuration.contract}/operations?entrypoints=stake,withdraw&with_storage_diff=true${lastId ? '&last_id=' + lastId : ''}`);
     if (result.data.operations.length > 0) {
       operations.push(
-        ...result.data.operations.filter(o => ['stake', 'withdraw'].indexOf(o.entrypoint) !== -1).map(o => ({hash: o.hash, level: o.level, source: o.source, amount: o.parameters[0].value, type: o.entrypoint}))
+        ...result.data.operations.filter(o => o.status === 'applied' && ['stake', 'withdraw'].indexOf(o.entrypoint) !== -1).map(o => ({hash: o.hash, level: o.level, source: o.source, amount: o.parameters[0].value, type: o.entrypoint}))
       );
       lastId = result.data.last_id;
     } else {
@@ -51,69 +36,94 @@ async function indexContractOperations(contractAddress: string) {
   return operations;
 }
 
-function calculateDistribution() {
-  const staking = new Staking("USDC");
-  staking.notifyRewardAmount(1500000000, 1445703);
-  const diffs = JSON.parse(fs.readFileSync(diffsFile).toString()) as Array<BigMapDiff>;
-  const balances: Map<string, string> = new Map<string, string>();
-  diffs.forEach(d => {
-    if (d.operation.level < 1445703 || d.operation.level > 1445703 + 10080) {
-      return;
-    }
-    switch (d.action) {
-      case 'add_key': {
-        balances.set(d.content.key, d.content.value);
-        staking.stake(d.content.key, +d.content.value, d.operation.level);
-        break;
+function calculateDistribution(operations: Array<SimpleOperation>, configuration: ContractConfiguration) {
+  const reward = new BigNumber(configuration.rewards);
+  const startLevel = configuration.startLevel;
+  const duration = configuration.duration;
+  const staking = new Staking(duration, "USDC");
+  let stakingStarted = false;
+  operations
+    .reverse()
+    .filter(d => !(d.level > startLevel + duration))
+    .forEach(d => {
+      if (!stakingStarted && d.level >= startLevel) {
+        staking.notifyRewardAmount(reward, startLevel);
+        stakingStarted = true;
       }
-      case 'remove_key': {
-        const existingBalance = balances.get(d.content.key);
-        staking.withdraw(d.content.key, +existingBalance, d.operation.level);
-        balances.delete(d.content.key);
-        break;
-      }
-      case 'update_key': {
-        const existingBalance = balances.get(d.content.key) || "0";
-        const newBalance = d.content.value;
-        const difference = new BigNumber(newBalance, 10).minus(new BigNumber(existingBalance, 10));
-        if (difference.isGreaterThan(0)) {
-          staking.stake(d.content.key, difference.toNumber(), d.operation.level);
-        } else {
-          staking.withdraw(d.content.key, difference.abs().toNumber(), d.operation.level);
+      switch (d.type) {
+        case 'stake': {
+          staking.stake(d.source, new BigNumber(d.amount), d.level);
+          break;
         }
-        balances.set(d.content.key, d.content.value);
-        break;
+        case 'withdraw': {
+          staking.withdraw(d.source, new BigNumber(d.amount), d.level);
+          break;
+        }
+        default:
+          break;
       }
-      default:
-        break;
+    });
+  return staking;
+}
+
+function showDistribution(name: string, staking: Staking, configuration: ContractConfiguration) {
+  const reward = configuration.rewards;
+  const startLevel = configuration.startLevel;
+  const duration = configuration.duration;
+  const allRewards = staking.allRewards(startLevel + duration);
+  let total = new BigNumber("0");
+  for(const entry of allRewards.entries()) {
+    const roundedValue = entry[1].integerValue(BigNumber.ROUND_DOWN);
+    total = total.plus(roundedValue);
+    if (!roundedValue.isZero()) {
+      console.log(entry[0], roundedValue.toString(10));
     }
-  });
-  return staking.allRewards(1445703 + 10080);
+  }
+  console.log('[Original reward amount] [Total calculated] [Difference]', reward,
+    total.toString(10),
+    new BigNumber(reward, 10).minus(total, 10).toString(10));
+  let result = 'address,amount\n';
+  for(const entry of allRewards.entries()) {
+    const roundedValue = entry[1].integerValue(BigNumber.ROUND_DOWN);
+    if (!roundedValue.isZero()) {
+      result += `${entry[0]},${roundedValue.toString(10)}\n`
+    }
+  }
+  fs.writeFileSync(`result/${name}_${configuration.contract}_week1.csv`, result);
+}
+
+async function calculateAll(name: string, configuration: ContractConfiguration) {
+  console.log(name, configuration.contract);
+  const operations = await indexContractOperations(configuration);
+  const staking = calculateDistribution(operations, configuration);
+  showDistribution(name, staking, configuration);
 }
 
 const configuration = {
-  wCEL: 'KT1FQBbU7uNkHSq4oLyiTyBFTZ7KfTWGLpcv',
-  wWBTC: 'KT1SZVLvLDQvqx6qMbF8oXZe2tfP7bJMASy2',
-  WRAP: 'KT1AnsHEdYKEdM62QCNpZGc5PfpXhftcdu22'
+  wCEL: {
+    contract: 'KT1FQBbU7uNkHSq4oLyiTyBFTZ7KfTWGLpcv',
+    duration: 10800,
+    startLevel: 1499538,
+    rewards: '260129'
+  },
+  wWBTC: {
+    contract:'KT1SZVLvLDQvqx6qMbF8oXZe2tfP7bJMASy2',
+    duration: 10800,
+    startLevel: 1499538,
+    rewards: '1767162'
+  },
+  WRAP: {
+    contract: 'KT1AnsHEdYKEdM62QCNpZGc5PfpXhftcdu22',
+    duration: 10800,
+    startLevel: 1499538,
+    rewards: '63920'
+  }
 };
 
 (async () => {
-  //wCEL: KT1FQBbU7uNkHSq4oLyiTyBFTZ7KfTWGLpcv
-  await indexContractOperations(configuration.wCEL);
-  //await indexDiffs();
-  //calculateBalances();
-
-  /*const allRewards = calculateDistribution();
-  for (const entry of allRewards.entries()) {
-    console.log(entry[0], entry[1].toString(10));
-  }
-  let total = new BigNumber("0");
-  for(const value of allRewards.values()) {
-    total = total.plus(value);
-  }
-  console.log(1500000000,
-    total.toString(10),
-    new BigNumber(1500000000, 10).minus(total).toString(10));*/
+  await calculateAll('wCEL', configuration.wCEL);
+  await calculateAll('wWBTC', configuration.wWBTC);
+  await calculateAll('WRAP', configuration.WRAP);
 })().catch(e => {
   console.error(e);
 });
